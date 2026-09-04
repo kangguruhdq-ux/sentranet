@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alert Log — SentraNet AI Threat Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <div id="sidebar-mount"></div>
+
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>Alert Log</h1>
+        <p>Alert dikelompokkan otomatis (grouping/deduplication) agar terlihat seperti dashboard SOC profesional, bukan spam log.</p>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Grouped Alerts</h2>
+          <div class="sub" id="alert-count">0 alert</div>
+        </div>
+        <button class="btn secondary small" id="btn-reset-session">Reset Session</button>
+      </div>
+      <div class="panel-body" id="alert-list" style="max-height:640px; overflow-y:auto;">
+        <p style="color:var(--text-dim); font-size:12px;">Belum ada alert. Alert akan muncul saat trafik simulasi terdeteksi sebagai serangan.</p>
+      </div>
+    </div>
+
+    <div class="footer-notice">
+      Serangan yang sama muncul berturut-turut dalam interval singkat akan dikelompokkan menjadi satu entri (mis. "SYN Flood / DoS ×18") lengkap dengan waktu deteksi terakhir dan status. Klik "detail" pada sebuah alert untuk melihat beberapa event individual di dalamnya.
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/nav.js"></script>
+<script>
+(function(){
+  const S = window.SentraNet, UI = window.SentraUI;
+
+  function render(state){
+    document.getElementById('alert-count').textContent = state.alerts.length + ' alert group' + (state.alerts.length===1?'':'s') +
+      ' · ' + state.attackCount + ' total simulated attack events';
+    const list = document.getElementById('alert-list');
+    if(state.alerts.length===0){
+      list.innerHTML = '<p style="color:var(--text-dim); font-size:12px;">Belum ada alert. Alert akan muncul saat trafik simulasi terdeteksi sebagai serangan.</p>';
+      return;
+    }
+    list.innerHTML = '';
+    state.alerts.forEach(a=>{
+      const el = document.createElement('div');
+      el.className = 'alert-item';
+      const icon = a.severity === 'CRITICAL' || a.severity === 'HIGH' ? '' : 'warn';
+      el.innerHTML = `
+        <div class="alert-icon ${icon}">⚠</div>
+        <div class="alert-text">
+          <div class="row1">
+            <span class="cat">${a.category}</span>
+            <span class="sev-badge ${a.severity}">${a.severity}</span>
+            <span style="color:var(--text-dim);">×${a.count} events</span>
+            <span style="color:var(--text-faint); font-family:var(--mono); font-size:10px;">${a.status}</span>
+          </div>
+          <div class="meta">first: ${a.firstSeen} · last detected: ${a.lastSeen} · attack probability ${(a.lastProb*100).toFixed(1)}%</div>
+          <span class="alert-expand" data-id="${a.id}">▸ detail event</span>
+          <div class="alert-events" id="ev-${a.id}">
+            ${a.events.map(e=>`<div>${e.time} — probability ${(e.prob*100).toFixed(1)}% — ${e.meta}</div>`).join('')}
+          </div>
+        </div>`;
+      list.appendChild(el);
+    });
+    list.querySelectorAll('.alert-expand').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const id = btn.getAttribute('data-id');
+        const ev = document.getElementById('ev-'+id);
+        const open = ev.classList.toggle('show');
+        btn.textContent = (open?'▾':'▸') + ' detail event';
+      });
+    });
+  }
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    UI.startClock();
+    S.onUpdate(render);
+    render(S.loadState());
+
+    document.getElementById('btn-reset-session').addEventListener('click', ()=>{
+      if(confirm('Reset dashboard session? Ini akan menghapus traffic count, attack count, chart, dan alert log (model aktif tidak berubah).')){
+        S.resetSession();
+        render(S.loadState());
+        UI.showToast('↺ Session direset.');
+      }
+    });
+  });
+})();
+</script>
+</body>
+</html>

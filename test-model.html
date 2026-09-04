@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Test Model — SentraNet AI Threat Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <div id="sidebar-mount"></div>
+
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>Uji Model — Analisis Manual</h1>
+        <p>Masukkan fitur koneksi jaringan (format gaya NSL-KDD) lalu jalankan model aktif untuk melihat klasifikasinya.</p>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Input Fitur Koneksi</h2>
+        <span class="tag" id="engine-tag">inference client-side</span>
+      </div>
+      <div class="panel-body">
+        <p style="font-size:12px; color:var(--text-dim); margin-bottom:12px;">Coba salah satu preset di bawah, atau isi manual:</p>
+        <div class="preset-row">
+          <button class="preset-btn" onclick="loadPreset('normal')">✅ Normal Traffic</button>
+          <button class="preset-btn" onclick="loadPreset('synflood')">🔥 SYN Flood</button>
+          <button class="preset-btn" onclick="loadPreset('portscan')">🔍 Port Scan</button>
+          <button class="preset-btn" onclick="loadPreset('bruteforce')">🔑 Brute Force</button>
+          <button class="preset-btn" onclick="loadPreset('ddos')">⚡ DDoS Burst</button>
+          <button class="preset-btn" onclick="loadPreset('botnet')">🕸️ Botnet Beacon</button>
+          <button class="preset-btn" onclick="loadPreset('random')">🎲 Acak</button>
+        </div>
+        <div class="test-grid">
+          <div class="field"><label>Duration (detik)</label><input type="number" id="f-duration" value="0" min="0"></div>
+          <div class="field"><label>Protocol Type</label>
+            <select id="f-protocol"><option value="tcp">tcp</option><option value="udp">udp</option><option value="icmp">icmp</option></select>
+          </div>
+          <div class="field"><label>Service</label>
+            <select id="f-service"><option value="http">http</option><option value="ftp">ftp</option><option value="smtp">smtp</option><option value="other">other</option></select>
+          </div>
+          <div class="field"><label>Flag</label>
+            <select id="f-flag"><option value="SF">SF (selesai normal)</option><option value="S0">S0 (tanpa respons)</option><option value="REJ">REJ (ditolak)</option><option value="other">other</option></select>
+          </div>
+          <div class="field"><label>Src Bytes</label><input type="number" id="f-srcbytes" value="300" min="0"></div>
+          <div class="field"><label>Dst Bytes</label><input type="number" id="f-dstbytes" value="500" min="0"></div>
+          <div class="field"><label>Count (koneksi/2s)</label><input type="number" id="f-count" value="2" min="0"></div>
+          <div class="field"><label>Srv Count</label><input type="number" id="f-srvcount" value="2" min="0"></div>
+          <div class="field"><label>Serror Rate (0-1)</label><input type="number" id="f-serror" value="0.0" min="0" max="1" step="0.01"></div>
+          <div class="field"><label>Same Srv Rate (0-1)</label><input type="number" id="f-samesrv" value="1.0" min="0" max="1" step="0.01"></div>
+        </div>
+        <p style="font-size:10.5px; color:var(--text-faint); margin-top:8px;">Catatan: model dengan skema fitur lama memakai <em>Serror Rate</em> &amp; <em>Same Srv Rate</em> langsung. Model dengan skema fitur baru (bytes/sec, pkts/sec, byte asymmetry) menghitungnya otomatis dari field lain — dua kolom ini akan diabaikan pada model tersebut.</p>
+        <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn" onclick="runInference()">▶ Jalankan Deteksi</button>
+          <span style="font-size:11px; color:var(--text-faint); align-self:center;" id="latency-note"></span>
+        </div>
+
+        <div class="result-box" id="result-box" style="display:none;">
+          <div class="result-cell">
+            <div class="rk">Prediction</div>
+            <div class="result-verdict" id="result-verdict">—</div>
+          </div>
+          <div class="result-cell">
+            <div class="rk">Attack Probability</div>
+            <div class="result-verdict" id="result-prob" style="font-size:19px;">—</div>
+            <div class="conf-bar-track"><div class="conf-bar-fill" id="conf-bar" style="width:0%;"></div></div>
+          </div>
+          <div class="result-cell">
+            <div class="rk">Risk Level</div>
+            <div class="result-verdict" id="result-risk" style="font-size:16px;">—</div>
+          </div>
+          <div class="result-cell">
+            <div class="rk">Detected Pattern</div>
+            <div class="result-sub" id="result-pattern" style="font-size:12.5px; color:var(--text);">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer-notice">
+      Model hanya melakukan klasifikasi biner (Normal / Attack) berbasis probabilitas. Kategori serangan pada "Detected Pattern" adalah estimasi heuristik dari pola fitur input, bukan klasifikasi multi-kelas yang divalidasi — karena itu selalu diberi label <em>"Possible ..."</em>.
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/nav.js"></script>
+<script>
+(function(){
+  const S = window.SentraNet, UI = window.SentraUI;
+
+  const PRESETS = {
+    normal:     {duration:12, protocol:'tcp', service:'http',  flag:'SF',  src:512, dst:2048, count:2,  srv:2,  serror:0.0, samesrv:1.0},
+    synflood:   {duration:0,  protocol:'tcp', service:'other', flag:'S0',  src:0,   dst:0,    count:45, srv:40, serror:0.95,samesrv:0.1},
+    portscan:   {duration:0,  protocol:'tcp', service:'other', flag:'REJ', src:0,   dst:0,    count:22, srv:20, serror:0.4, samesrv:0.05},
+    bruteforce: {duration:2,  protocol:'tcp', service:'ftp',   flag:'S0',  src:40,  dst:0,    count:8,  srv:8,  serror:0.4, samesrv:0.7},
+    ddos:       {duration:0,  protocol:'udp', service:'other', flag:'S0',  src:5,   dst:0,    count:120,srv:100,serror:0.9, samesrv:0.05},
+    botnet:     {duration:32, protocol:'tcp', service:'other', flag:'SF',  src:80,  dst:40,   count:1,  srv:1,  serror:0.05,samesrv:0.9}
+  };
+
+  window.loadPreset = function(kind){
+    if(kind==='random'){
+      document.getElementById('f-duration').value = Math.floor(Math.random()*60);
+      document.getElementById('f-protocol').value = ['tcp','udp','icmp'][Math.floor(Math.random()*3)];
+      document.getElementById('f-service').value = ['http','ftp','smtp','other'][Math.floor(Math.random()*4)];
+      document.getElementById('f-flag').value = ['SF','S0','REJ','other'][Math.floor(Math.random()*4)];
+      document.getElementById('f-srcbytes').value = Math.floor(Math.random()*3000);
+      document.getElementById('f-dstbytes').value = Math.floor(Math.random()*3000);
+      document.getElementById('f-count').value = Math.floor(Math.random()*40);
+      document.getElementById('f-srvcount').value = Math.floor(Math.random()*40);
+      document.getElementById('f-serror').value = (Math.random()).toFixed(2);
+      document.getElementById('f-samesrv').value = (Math.random()).toFixed(2);
+      return;
+    }
+    const p = PRESETS[kind];
+    if(!p) return;
+    document.getElementById('f-duration').value = p.duration;
+    document.getElementById('f-protocol').value = p.protocol;
+    document.getElementById('f-service').value = p.service;
+    document.getElementById('f-flag').value = p.flag;
+    document.getElementById('f-srcbytes').value = p.src;
+    document.getElementById('f-dstbytes').value = p.dst;
+    document.getElementById('f-count').value = p.count;
+    document.getElementById('f-srvcount').value = p.srv;
+    document.getElementById('f-serror').value = p.serror;
+    document.getElementById('f-samesrv').value = p.samesrv;
+  };
+
+  function readForm(){
+    const ids = ['f-duration','f-srcbytes','f-dstbytes','f-count','f-srvcount','f-serror','f-samesrv'];
+    for(const id of ids){
+      const v = document.getElementById(id).value;
+      if(v === '' || !isFinite(Number(v))){
+        UI.showToast('❌ Input tidak valid pada field ' + id.replace('f-','') + ' (kosong / bukan angka).', true);
+        return null;
+      }
+      if(Number(v) < 0){
+        UI.showToast('❌ Nilai tidak boleh negatif pada field ' + id.replace('f-','') + '.', true);
+        return null;
+      }
+    }
+    const serror = parseFloat(document.getElementById('f-serror').value);
+    const samesrv = parseFloat(document.getElementById('f-samesrv').value);
+    if(serror > 1 || samesrv > 1){
+      UI.showToast('❌ Serror Rate & Same Srv Rate harus di antara 0 dan 1.', true);
+      return null;
+    }
+    return {
+      duration: parseFloat(document.getElementById('f-duration').value),
+      protocol_type: document.getElementById('f-protocol').value,
+      service: document.getElementById('f-service').value,
+      flag: document.getElementById('f-flag').value,
+      src_bytes: parseFloat(document.getElementById('f-srcbytes').value),
+      dst_bytes: parseFloat(document.getElementById('f-dstbytes').value),
+      count: parseFloat(document.getElementById('f-count').value),
+      srv_count: parseFloat(document.getElementById('f-srvcount').value),
+      serror_rate: serror,
+      same_srv_rate: samesrv
+    };
+  }
+
+  window.runInference = function(){
+    const sample = readForm();
+    if(!sample) return;
+    let probAttack, isAttack;
+    try{
+      const r = S.predict(sample);
+      probAttack = r.probAttack; isAttack = r.isAttack;
+    }catch(err){
+      UI.showToast('❌ Model gagal memproses input: ' + err.message, true);
+      return;
+    }
+    const category = isAttack ? S.classifyCategory(sample, probAttack) : null;
+    const severity = isAttack ? S.severityFor(category, probAttack) : 'LOW';
+    const pattern = isAttack ? S.patternFor(category) : 'Tidak ada pola anomali terdeteksi';
+
+    const box = document.getElementById('result-box');
+    box.style.display='grid';
+    box.className = 'result-box ' + (isAttack ? 'attack' : 'normal');
+    document.getElementById('result-verdict').textContent = isAttack ? '🚨 ATTACK' : '✓ NORMAL';
+    document.getElementById('result-verdict').className = 'result-verdict ' + (isAttack?'attack':'normal');
+    document.getElementById('result-prob').textContent = (probAttack*100).toFixed(1)+'%';
+    document.getElementById('result-risk').textContent = isAttack ? severity : 'LOW';
+    document.getElementById('result-pattern').textContent = pattern;
+
+    const bar = document.getElementById('conf-bar');
+    bar.style.width = (probAttack*100).toFixed(0)+'%';
+    bar.style.background = isAttack ? 'var(--accent-alert)' : 'var(--accent-safe)';
+
+    document.getElementById('latency-note').textContent = 'inference latency: ' + S.getLastLatencyMs().toFixed(2) + ' ms';
+
+    S.registerDetection(sample, probAttack, isAttack, category);
+  };
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    UI.startClock();
+    const model = S.getModel();
+    document.getElementById('engine-tag').textContent = 'active model: ' + ((model.meta && model.meta.name) || 'baseline-heuristic-v1');
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulasi Serangan — SentraNet AI Threat Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <div id="sidebar-mount"></div>
+
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>Simulator Serangan</h1>
+        <p>Uji seberapa jauh model aktif bisa mengejar pola serangan yang meningkat — <span class="sim-badge safe"><span class="dot"></span> SAFE SIMULATION</span></p>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Pilih Profil Serangan</h2>
+        <span class="tag" id="engine-tag">stress-test model</span>
+      </div>
+      <div class="panel-body">
+        <div class="sim-note">
+          <strong>Penting:</strong> ini bukan alat untuk menyerang jaringan/situs sungguhan. Setiap kartu di bawah men-generate <strong>data fitur trafik sintetis</strong> (angka-angka ala NSL-KDD/CICIDS2017) yang polanya menyerupai jenis serangan tertentu, lalu mengalirkannya ke model deteksi aktif yang sama seperti panel Live Traffic dan Test Model. Tidak ada paket jaringan yang benar-benar dikirim ke mana pun.
+        </div>
+        <div class="sim-grid" id="sim-grid"></div>
+        <div class="sim-progress" id="sim-progress">
+          <div class="sim-progress-track"><div class="sim-progress-fill" id="sim-progress-fill"></div></div>
+          <div class="sim-progress-label"><span id="sim-progress-text">Menjalankan simulasi...</span><span id="sim-progress-count">0/0</span></div>
+        </div>
+
+        <div class="sim-result" id="sim-result">
+          <div style="font-size:13px; font-weight:600;" id="sim-result-title">SIMULATION RESULT</div>
+          <div class="sim-result-grid">
+            <div><div class="k">Packets simulated</div><div class="v" id="sr-total">0</div></div>
+            <div><div class="k">Detected</div><div class="v" id="sr-detected" style="color:var(--accent-safe);">0</div></div>
+            <div><div class="k">Missed</div><div class="v" id="sr-missed" style="color:var(--accent-alert);">0</div></div>
+            <div><div class="k">Simulation Detection Rate (Recall)</div><div class="v" id="sr-recall">0%</div></div>
+            <div><div class="k">Average attack probability</div><div class="v" id="sr-avgprob">0%</div></div>
+            <div><div class="k">Risk</div><div class="v" id="sr-risk">—</div></div>
+          </div>
+          <p style="font-size:10.5px; color:var(--text-faint); margin-top:12px;">Angka di atas adalah hasil dari batch simulasi ini saja — bukan validation accuracy model. Untuk metrik validasi resmi model, lihat panel Model Registry.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/nav.js"></script>
+<script>
+(function(){
+  const S = window.SentraNet, UI = window.SentraUI;
+  let simRunning = false;
+
+  function buildGrid(){
+    const grid = document.getElementById('sim-grid');
+    grid.innerHTML = '';
+    Object.entries(S.ATTACK_PROFILES).forEach(([key, p]) => {
+      const card = document.createElement('div');
+      card.className = 'sim-card';
+      card.onclick = () => runSimulation(key);
+      card.innerHTML = `<div class="sim-icon">${p.icon}</div><div class="sim-name">${p.label}</div><div class="sim-desc">${p.desc}</div>`;
+      grid.appendChild(card);
+    });
+  }
+
+  async function runSimulation(kind, n){
+    n = n || 20;
+    if(simRunning){ UI.showToast('⏳ Simulasi lain masih berjalan, tunggu sampai selesai.', true); return; }
+    const profile = S.ATTACK_PROFILES[kind];
+    if(!profile) return;
+    simRunning = true;
+    const progress = document.getElementById('sim-progress');
+    const fill = document.getElementById('sim-progress-fill');
+    const text = document.getElementById('sim-progress-text');
+    const count = document.getElementById('sim-progress-count');
+    document.getElementById('sim-result').classList.remove('show');
+    progress.classList.add('show');
+    text.textContent = `Meluncurkan simulasi: ${profile.label}`;
+
+    let detected = 0;
+    let probSum = 0;
+    for(let i=0;i<n;i++){
+      const sample = profile.gen();
+      const { probAttack, isAttack } = S.predict(sample);
+      probSum += probAttack;
+      const category = profile.category || S.classifyCategory(sample, probAttack);
+      if(isAttack) detected++;
+      S.registerDetection(sample, probAttack, isAttack, isAttack ? category : null);
+      fill.style.width = Math.round(((i+1)/n)*100)+'%';
+      count.textContent = `${i+1}/${n}`;
+      await new Promise(r=>setTimeout(r, 85));
+    }
+
+    const missed = n - detected;
+    const recall = Math.round((detected/n)*100);
+    const avgProb = probSum/n;
+    text.textContent = `Selesai — ${profile.label}`;
+
+    document.getElementById('sim-result-title').textContent = `SIMULATION RESULT — ${profile.label}`;
+    document.getElementById('sr-total').textContent = n;
+    document.getElementById('sr-detected').textContent = detected;
+    document.getElementById('sr-missed').textContent = missed;
+    document.getElementById('sr-recall').textContent = recall + '%';
+    document.getElementById('sr-avgprob').textContent = (avgProb*100).toFixed(1) + '%';
+    const risk = avgProb >= 0.8 ? 'CRITICAL' : avgProb >= 0.6 ? 'HIGH' : avgProb >= 0.4 ? 'MEDIUM' : 'LOW';
+    document.getElementById('sr-risk').textContent = risk;
+    document.getElementById('sim-result').classList.add('show');
+
+    UI.showToast(`✅ Simulasi "${profile.label}" selesai: ${detected}/${n} terdeteksi (recall ${recall}%)`);
+    setTimeout(()=>{ progress.classList.remove('show'); fill.style.width='0%'; }, 1200);
+    simRunning = false;
+  }
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    UI.startClock();
+    buildGrid();
+    const model = S.getModel();
+    document.getElementById('engine-tag').textContent = 'active model: ' + ((model.meta && model.meta.name) || 'baseline-heuristic-v1');
+  });
+})();
+</script>
+</body>
+</html>

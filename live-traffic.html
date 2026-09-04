@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Traffic — SentraNet AI Threat Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <div id="sidebar-mount"></div>
+
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>Live Traffic — Simulation</h1>
+        <p>Trafik sintetis yang mengalir otomatis ke model aktif untuk demonstrasi. <span class="sim-badge"><span class="dot"></span> SIMULATION MODE</span></p>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="grid-stats">
+      <div class="stat-card">
+        <div class="stat-label">Status</div>
+        <div class="stat-value safe" style="font-size:16px;">● ENGINE ONLINE</div>
+        <div class="stat-delta">DETECTION ENGINE ACTIVE</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Inference</div>
+        <div class="stat-value info" style="font-size:16px;">Client-side</div>
+        <div class="stat-delta">Browser · tanpa server</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Latency</div>
+        <div class="stat-value" style="font-size:16px;" id="stat-latency">— ms</div>
+        <div class="stat-delta">dihitung nyata per prediksi</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Model</div>
+        <div class="stat-value" style="font-size:15px;" id="stat-model">baseline-heuristic-v1</div>
+        <div class="stat-delta"><a href="model-registry.html" style="color:var(--accent-info); text-decoration:none;">Model Registry →</a></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>Live Traffic Feed</h2>
+          <div class="sub">Traffic yang ditampilkan adalah data sintetis untuk demonstrasi model dan bukan monitoring jaringan produksi.</div>
+        </div>
+        <span class="tag" id="feed-toggle-label" style="cursor:pointer; color:var(--accent-info);">⏸ jeda</span>
+      </div>
+      <div class="panel-body feed-wrap" style="padding-top:0;">
+        <div class="feed-row head"><div>TIME</div><div>SOURCE IP</div><div>SERVICE / FLAG</div><div>STATUS</div><div>ATTACK PROB.</div></div>
+        <div class="feed tall" id="feed"></div>
+      </div>
+    </div>
+
+    <div class="footer-notice">
+      IP sumber ditampilkan menggunakan rentang private/documentation-style (10.x.x.x, 192.168.x.x, 172.16.x.x) — bukan alamat publik nyata. Jika sebuah paket terdeteksi sebagai serangan, dashboard menampilkan <em>"Simulated attack detected"</em>, bukan klaim bahwa jaringan sungguhan sedang diserang.
+    </div>
+  </main>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/nav.js"></script>
+<script>
+(function(){
+  const S = window.SentraNet, UI = window.SentraUI;
+
+  function render(state){
+    const feed = document.getElementById('feed');
+    feed.innerHTML = '';
+    state.feed.forEach(e=>{
+      const row = document.createElement('div');
+      row.className = 'feed-row' + (e.isAttack?' attack':'');
+      const statusLabel = e.isAttack ? ('🚨 ' + e.category) : 'NORMAL';
+      row.innerHTML = `<div class="time">${e.time}</div>
+        <div class="ip">${e.ip}</div>
+        <div>${e.service}/${e.flag}</div>
+        <div><span class="badge ${e.isAttack?'attack':'normal'}">${statusLabel}</span></div>
+        <div class="conf">${(e.prob*100).toFixed(1)}%</div>`;
+      feed.appendChild(row);
+    });
+    document.getElementById('feed-toggle-label').textContent = state.feedRunning ? '⏸ jeda' : '▶ lanjut';
+  }
+
+  function tick(){
+    const state = S.loadState();
+    if(!state.feedRunning) return;
+    const sample = S.genRandomSample();
+    const { probAttack, isAttack } = S.predict(sample);
+    document.getElementById('stat-latency').textContent = S.getLastLatencyMs().toFixed(2) + ' ms';
+    S.registerDetection(sample, probAttack, isAttack, isAttack ? S.classifyCategory(sample, probAttack) : null);
+  }
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    UI.startClock();
+    const model = S.getModel();
+    document.getElementById('stat-model').textContent = (model.meta && model.meta.name) || 'baseline-heuristic-v1';
+
+    S.onUpdate(render);
+    render(S.loadState());
+
+    document.getElementById('feed-toggle-label').addEventListener('click', ()=>{
+      const state = S.loadState();
+      state.feedRunning = !state.feedRunning;
+      S.saveState(state);
+    });
+
+    setInterval(tick, 1400);
+  });
+})();
+</script>
+</body>
+</html>

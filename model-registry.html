@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Registry — SentraNet AI Threat Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <div id="sidebar-mount"></div>
+
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>Model Registry</h1>
+        <p>Kelola model aktif, upload hasil training dari Google Colab, dan lihat metrik validasi resminya.</p>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-head">
+        <div>
+          <h2>ACTIVE MODEL</h2>
+          <div class="sub" id="mi-name" style="font-family:var(--mono); font-size:15px; color:var(--text); margin-top:4px;">-</div>
+        </div>
+        <span class="tag" id="model-source-tag">baseline heuristic</span>
+      </div>
+      <div class="panel-body">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+          <div>
+            <div class="kv"><span class="k">Model Type</span><span class="v" id="mi-type">-</span></div>
+            <div class="kv"><span class="k">Dataset</span><span class="v" id="mi-dataset">-</span></div>
+            <div class="kv"><span class="k">Training Status</span><span class="v" id="mi-status">-</span></div>
+            <div class="kv"><span class="k">Feature Count</span><span class="v" id="mi-features">-</span></div>
+            <div class="kv"><span class="k">Threshold</span><span class="v" id="mi-threshold">-</span></div>
+            <div class="kv"><span class="k">Training Date</span><span class="v" id="mi-date">-</span></div>
+            <div class="kv"><span class="k">Inference</span><span class="v">Client-side</span></div>
+            <div class="kv"><span class="k">Runtime</span><span class="v">Browser</span></div>
+            <div class="kv"><span class="k">Backend</span><span class="v">None</span></div>
+            <div style="margin-top:10px;">
+              <div style="font-size:11px; color:var(--text-dim); margin-bottom:4px;">Fitur numerik aktif</div>
+              <div class="feature-pills" id="mi-pills"></div>
+            </div>
+          </div>
+          <div>
+            <p style="font-size:12px; color:var(--text-dim); line-height:1.6;">
+              Model bawaan adalah <strong style="color:var(--text);">Baseline Heuristic</strong> agar dashboard bisa langsung dites tanpa server maupun training. Untuk model dengan metrik validasi sungguhan, latih model di <strong>Google Colab</strong> lalu upload <code style="color:var(--accent-info);">weights.json</code> hasil ekspornya — dashboard akan otomatis membaca metadata apa pun skema fiturnya.
+            </p>
+            <div class="file-drop" id="file-drop">
+              📤 Klik atau seret <strong>weights.json</strong> hasil training Colab ke sini
+            </div>
+            <input type="file" id="file-input" accept=".json" style="display:none;">
+            <div style="display:flex; gap:10px; margin-top:12px;">
+              <button class="btn secondary" style="flex:1;" id="btn-reset-model">↺ Kembalikan ke model bawaan</button>
+            </div>
+            <p style="font-size:10.5px; color:var(--text-faint); margin-top:10px;">
+              Prioritas model: (1) uploaded model yang valid, (2) baseline heuristic sebagai fallback. Jika upload gagal validasi, model aktif tidak berubah.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-head">
+        <h2>MODEL PERFORMANCE</h2>
+        <span class="tag" id="eval-scope-tag">Offline Test Set Evaluation</span>
+      </div>
+      <div class="panel-body">
+        <div class="metric-grid">
+          <div class="metric-card"><div class="k">Accuracy</div><div class="v" id="m-acc">N/A</div></div>
+          <div class="metric-card"><div class="k">Attack Precision</div><div class="v" id="m-prec">N/A</div></div>
+          <div class="metric-card"><div class="k">Attack Recall</div><div class="v" id="m-rec">N/A</div></div>
+          <div class="metric-card"><div class="k">Attack F1</div><div class="v" id="m-f1">N/A</div></div>
+          <div class="metric-card"><div class="k">ROC-AUC</div><div class="v" id="m-auc">N/A</div></div>
+          <div class="metric-card"><div class="k">Test Samples</div><div class="v" id="m-samples">N/A</div></div>
+        </div>
+        <p style="font-size:11px; color:var(--text-dim); margin-top:14px; line-height:1.6;" id="metric-caption">
+          Belum ada metrik validasi untuk model aktif ini.
+        </p>
+        <span class="dataset-toggle" id="dataset-toggle" style="display:none;">▸ Dataset Performance</span>
+        <div class="dataset-breakdown" id="dataset-breakdown"></div>
+      </div>
+    </div>
+
+    <div class="footer-notice">
+      <strong>Honest metric labeling:</strong> istilah "Accuracy / Attack Precision / Attack Recall / Attack F1" di atas dihitung pada test set offline yang disediakan lewat metadata model — bukan "Production Accuracy", karena model belum diuji pada jaringan produksi nyata. Live Traffic dan Attack Simulator adalah demonstrasi sintetis dan <strong>tidak</strong> termasuk dalam metrik validasi ini.
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/nav.js"></script>
+<script>
+(function(){
+  const S = window.SentraNet, UI = window.SentraUI;
+
+  function renderModelInfo(){
+    const m = S.getModel();
+    const meta = m.meta || {};
+    document.getElementById('mi-name').textContent = meta.name || meta.model_name || 'baseline-heuristic-v1';
+    document.getElementById('mi-type').textContent = meta.model_type || meta.type || 'Logistic Regression / Heuristic Baseline';
+    document.getElementById('mi-dataset').textContent = meta.dataset || 'Not trained on real dataset';
+    document.getElementById('mi-status').textContent = meta.evaluation_status || 'Demo / Baseline';
+    document.getElementById('mi-features').textContent = m.weights.length;
+    document.getElementById('mi-threshold').textContent = (typeof meta.threshold === 'number') ? meta.threshold.toFixed(2) : '0.50 (default)';
+    document.getElementById('mi-date').textContent = meta.training_date || '-';
+    document.getElementById('model-source-tag').textContent = S.getModelSource()==='uploaded' ? 'model hasil training Colab' : 'baseline heuristic';
+
+    const pillWrap = document.getElementById('mi-pills');
+    pillWrap.innerHTML = '';
+    (m.numeric_features || []).forEach(f=>{
+      const pill = document.createElement('span');
+      pill.className = 'feature-pill';
+      pill.textContent = f;
+      pillWrap.appendChild(pill);
+    });
+
+    document.getElementById('m-acc').textContent = UI.pct(meta.accuracy);
+    document.getElementById('m-prec').textContent = UI.pct(meta.precision);
+    document.getElementById('m-rec').textContent = UI.pct(meta.recall);
+    document.getElementById('m-f1').textContent = UI.pct(meta.f1);
+    document.getElementById('m-auc').textContent = UI.pct(meta.roc_auc);
+    document.getElementById('m-samples').textContent = UI.num(meta.test_samples);
+
+    const hasMetrics = meta.accuracy !== null && meta.accuracy !== undefined;
+    document.getElementById('eval-scope-tag').textContent = meta.evaluation_scope || (hasMetrics ? 'Offline Test Set Evaluation' : 'Not evaluated');
+    document.getElementById('metric-caption').textContent = hasMetrics
+      ? 'Metrics are calculated on an offline test set. Live Traffic and Attack Simulator are synthetic demonstrations and are not included in these validation metrics.'
+      : 'Model performance can be evaluated using the provided Colab training pipeline. Upload a weights.json with evaluation metadata to populate this panel.';
+
+    const toggle = document.getElementById('dataset-toggle');
+    const breakdown = document.getElementById('dataset-breakdown');
+    if(Array.isArray(meta.dataset_metrics) && meta.dataset_metrics.length){
+      toggle.style.display = 'inline-block';
+      toggle.textContent = '▸ Dataset Performance';
+      breakdown.innerHTML = meta.dataset_metrics.map(d => `
+        <div class="metric-card" style="margin-top:8px;">
+          <div class="k">${d.dataset || 'Dataset'}</div>
+          <div style="display:flex; gap:18px; margin-top:6px; flex-wrap:wrap;">
+            <div><span style="font-size:10.5px; color:var(--text-dim);">Accuracy</span><div class="v" style="font-size:14px;">${UI.pct(d.accuracy)}</div></div>
+            <div><span style="font-size:10.5px; color:var(--text-dim);">F1</span><div class="v" style="font-size:14px;">${d.f1!==undefined && d.f1!==null ? Number(d.f1).toFixed(3) : 'N/A'}</div></div>
+            <div><span style="font-size:10.5px; color:var(--text-dim);">Samples</span><div class="v" style="font-size:14px;">${UI.num(d.samples)}</div></div>
+          </div>
+        </div>`).join('');
+      toggle.onclick = () => {
+        const open = breakdown.classList.toggle('show');
+        toggle.textContent = (open?'▾':'▸') + ' Dataset Performance';
+      };
+    } else {
+      toggle.style.display = 'none';
+      breakdown.classList.remove('show');
+      breakdown.innerHTML = '';
+    }
+  }
+
+  function handleFile(file){
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      let parsed;
+      try{
+        parsed = JSON.parse(ev.target.result);
+      }catch(err){
+        UI.showToast('❌ Invalid model file — JSON tidak valid: ' + err.message, true);
+        return;
+      }
+      const check = S.validateWeights(parsed);
+      if(!check.valid){
+        UI.showToast('❌ Invalid model file — ' + check.reason, true);
+        return;
+      }
+      S.saveModel(parsed, 'uploaded');
+      renderModelInfo();
+      UI.showToast('✅ Model berhasil dimuat: ' + (parsed.meta?.name || parsed.meta?.model_name || 'custom-model'));
+    };
+    reader.onerror = () => UI.showToast('❌ Gagal membaca file.', true);
+    reader.readAsText(file);
+  }
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    UI.startClock();
+    renderModelInfo();
+
+    const zone = document.getElementById('file-drop');
+    const input = document.getElementById('file-input');
+    zone.addEventListener('click', ()=>input.click());
+    input.addEventListener('change', (e)=>handleFile(e.target.files[0]));
+    ['dragenter','dragover'].forEach(evt => zone.addEventListener(evt, e=>{ e.preventDefault(); zone.classList.add('dragover'); }));
+    ['dragleave','drop'].forEach(evt => zone.addEventListener(evt, e=>{ e.preventDefault(); zone.classList.remove('dragover'); }));
+    zone.addEventListener('drop', e=>{ const f = e.dataTransfer.files[0]; if(f) handleFile(f); });
+
+    document.getElementById('btn-reset-model').addEventListener('click', ()=>{
+      S.resetModel();
+      renderModelInfo();
+      UI.showToast('↺ Baseline model restored');
+    });
+  });
+})();
+</script>
+</body>
+</html>

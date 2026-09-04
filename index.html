@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Overview — SentraNet AI Threat Detection</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <div id="sidebar-mount"></div>
+
+  <main class="page">
+    <div class="topbar">
+      <div class="radar-sweep" aria-hidden="true"></div>
+      <div>
+        <h1>Ringkasan Deteksi Serangan Cyber</h1>
+        <p>Monitoring trafik (simulasi) dan pengujian model klasifikasi berbasis NSL-KDD / CICIDS2017 — <span class="sim-badge"><span class="dot"></span> SIMULATION MODE</span></p>
+      </div>
+      <div class="clock" id="clock">--:--:--</div>
+    </div>
+
+    <div class="grid-stats">
+      <div class="stat-card">
+        <div class="stat-label">Traffic Analyzed</div>
+        <div class="stat-value info" id="stat-total">0</div>
+        <div class="stat-delta">sejak dashboard dibuka</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Attacks Detected</div>
+        <div class="stat-value alert" id="stat-attack">0</div>
+        <div class="stat-delta" id="stat-attack-pct">0% simulated attack ratio</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Normal Traffic</div>
+        <div class="stat-value safe" id="stat-normal">0</div>
+        <div class="stat-delta">tidak ada indikasi anomali</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active Model</div>
+        <div class="stat-value" id="stat-model" style="font-size:15px;">baseline-heuristic-v1</div>
+        <div class="stat-delta" id="stat-model-status">lihat Model Registry →</div>
+      </div>
+    </div>
+
+    <div class="grid-main">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Live Traffic Feed</h2>
+            <div class="sub">3 kejadian terakhir — lihat semua di Live Traffic</div>
+          </div>
+          <a href="live-traffic.html" class="tag" style="color:var(--accent-info); text-decoration:none;">buka halaman penuh →</a>
+        </div>
+        <div class="panel-body feed-wrap" style="padding-top:0;">
+          <div class="feed-row head"><div>WAKTU</div><div>IP SUMBER</div><div>SERVICE</div><div>STATUS</div><div>PROB.</div></div>
+          <div class="feed" id="feed-preview"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h2>Alert Terbaru</h2>
+            <div class="sub" id="alert-count">0 alert</div>
+          </div>
+          <a href="alert-log.html" class="tag" style="color:var(--accent-info); text-decoration:none;">buka semua →</a>
+        </div>
+        <div class="panel-body" id="alert-preview" style="max-height:300px; overflow-y:auto;">
+          <p style="color:var(--text-dim); font-size:12px;">Belum ada alert. Alert akan muncul saat trafik simulasi terdeteksi sebagai serangan.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-main">
+      <div class="panel">
+        <div class="panel-head"><h2>Distribusi Kategori Serangan</h2><span class="tag">SIMULATED DATA</span></div>
+        <div class="panel-body"><div class="chart-wrap"><canvas id="chartCat"></canvas></div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><h2>Trafik: Normal vs Serangan</h2><span class="tag">20 sampel terakhir · SIMULATED DATA</span></div>
+        <div class="panel-body"><div class="chart-wrap"><canvas id="chartLine"></canvas></div></div>
+      </div>
+    </div>
+
+    <div class="footer-notice">
+      <strong>Privacy:</strong> inference berjalan sepenuhnya di browser. Data pengujian tidak dikirim ke server manapun oleh dashboard ini.
+      Namun jika font/CDN eksternal (Google Fonts, Chart.js) dimuat, browser tetap melakukan request ke domain tersebut seperti biasa.
+      <br><br>
+      <strong>Catatan:</strong> Traffic yang ditampilkan adalah data sintetis untuk demonstrasi model, bukan monitoring jaringan produksi. Detection rate di atas adalah rasio serangan simulasi dalam sesi ini, bukan angka validasi model — lihat Model Registry untuk metrik validasi sebenarnya.
+    </div>
+  </main>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/nav.js"></script>
+<script>
+(function(){
+  const S = window.SentraNet, UI = window.SentraUI;
+  let chartCat, chartLine;
+
+  function initCharts(){
+    chartCat = new Chart(document.getElementById('chartCat').getContext('2d'), {
+      type:'doughnut',
+      data:{ labels:S.CATS,
+        datasets:[{ data:S.CATS.map(()=>0), backgroundColor:['#ff4468','#ffb734','#8f7bff','#ff8a3d','#4fb3ff','#8a94a6'], borderWidth:0 }]},
+      options:{ animation:{duration:300}, plugins:{legend:{position:'bottom', labels:{color:'#8a94a6', font:{size:9.5}, boxWidth:9}}}, cutout:'65%' }
+    });
+    chartLine = new Chart(document.getElementById('chartLine').getContext('2d'), {
+      type:'line',
+      data:{ labels:Array(20).fill(''),
+        datasets:[
+          { label:'Normal', data:Array(20).fill(0), borderColor:'#00e59a', backgroundColor:'rgba(0,229,154,0.08)', tension:0.35, fill:true, pointRadius:0 },
+          { label:'Serangan', data:Array(20).fill(0), borderColor:'#ff4468', backgroundColor:'rgba(255,68,104,0.08)', tension:0.35, fill:true, pointRadius:0 }
+        ]},
+      options:{ animation:{duration:200}, plugins:{legend:{position:'bottom', labels:{color:'#8a94a6', font:{size:9.5}, boxWidth:9}}},
+        scales:{ x:{display:false}, y:{beginAtZero:true, ticks:{color:'#8a94a6', font:{size:10}}, grid:{color:'#1c2433'}}}}
+    });
+  }
+
+  function render(state){
+    document.getElementById('stat-total').textContent = state.totalCount;
+    document.getElementById('stat-attack').textContent = state.attackCount;
+    document.getElementById('stat-normal').textContent = state.normalCount;
+    document.getElementById('stat-attack-pct').textContent = state.totalCount
+      ? Math.round(state.attackCount/state.totalCount*100)+'% simulated attack ratio'
+      : '0% simulated attack ratio';
+
+    const model = S.getModel();
+    document.getElementById('stat-model').textContent = (model.meta && model.meta.name) || 'baseline-heuristic-v1';
+    document.getElementById('stat-model-status').textContent =
+      (model.meta && model.meta.evaluation_status) ? model.meta.evaluation_status : 'Not evaluated';
+
+    const feed = document.getElementById('feed-preview');
+    feed.innerHTML = '';
+    state.feed.slice(-3).forEach(e=>{
+      const row = document.createElement('div');
+      row.className = 'feed-row' + (e.isAttack?' attack':'');
+      row.innerHTML = `<div class="time">${e.time}</div><div class="ip">${e.ip}</div><div>${e.service}/${e.flag}</div>
+        <div><span class="badge ${e.isAttack?'attack':'normal'}">${e.isAttack? e.category : 'NORMAL'}</span></div>
+        <div class="conf">${(e.prob*100).toFixed(0)}%</div>`;
+      feed.appendChild(row);
+    });
+
+    document.getElementById('alert-count').textContent = state.alerts.length + ' alert';
+    const alertBox = document.getElementById('alert-preview');
+    if(state.alerts.length===0){
+      alertBox.innerHTML = '<p style="color:var(--text-dim); font-size:12px;">Belum ada alert. Alert akan muncul saat trafik simulasi terdeteksi sebagai serangan.</p>';
+    } else {
+      alertBox.innerHTML = '';
+      state.alerts.slice(0,5).forEach(a=>{
+        const el = document.createElement('div');
+        el.className = 'alert-item';
+        el.innerHTML = `<div class="alert-icon">⚠</div>
+          <div class="alert-text">
+            <div class="row1"><span class="cat">${a.category}</span> <span class="sev-badge ${a.severity}">${a.severity}</span> <span style="color:var(--text-dim);">×${a.count}</span></div>
+            <div class="meta">last: ${a.lastSeen} · attack probability ${(a.lastProb*100).toFixed(0)}%</div>
+          </div>`;
+        alertBox.appendChild(el);
+      });
+    }
+
+    const catData = S.CATS.map(c=>state.catCounts[c]||0);
+    chartCat.data.datasets[0].data = catData;
+    chartCat.update('none');
+    chartLine.data.datasets[0].data = state.timeline.map(t=>t.normal);
+    chartLine.data.datasets[1].data = state.timeline.map(t=>t.attack);
+    chartLine.update('none');
+  }
+
+  function tickFeed(){
+    const state = S.loadState();
+    if(!state.feedRunning) return;
+    const sample = S.genRandomSample();
+    const { probAttack, isAttack } = S.predict(sample);
+    S.registerDetection(sample, probAttack, isAttack, isAttack ? S.classifyCategory(sample, probAttack) : null);
+  }
+
+  window.addEventListener('DOMContentLoaded', ()=>{
+    initCharts();
+    UI.startClock();
+    S.onUpdate(render);
+    render(S.loadState());
+    setInterval(tickFeed, 1400);
+  });
+})();
+</script>
+</body>
+</html>
